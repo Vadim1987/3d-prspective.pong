@@ -34,22 +34,38 @@ function Paddle:update(dt, vdir, hdir)
     end
 end
 
--- Draw as a flat trapezoid on the table plane (h = 0)
+-- Base: flat trapezoid on the table plane (h = 0)
 function Paddle:draw()
     local xN = self.x
     local xF = self.x + self.width
-    local halfY = self.height * 0.5
     local yTop = self.y
     local yBot = self.y + self.height
 
-    -- 4 projected corners (near-left, near-right, far-right, far-left)
+    -- 4 projected corners (near-left, near-right, far-right, far-left) on h=0
     local nLx, nLy = Perspective.project(xN, yTop, 0)
     local nRx, nRy = Perspective.project(xN, yBot, 0)
     local fRx, fRy = Perspective.project(xF, yBot, 0)
     local fLx, fLy = Perspective.project(xF, yTop, 0)
 
-    -- Fill (FG) and outline (FG) — no shadow
     love.graphics.setColor(COLOR_FG)
+    love.graphics.polygon("fill", nLx,nLy, nRx,nRy, fRx,fRy, fLx,fLy)
+    love.graphics.setLineWidth(2)
+    love.graphics.polygon("line", nLx,nLy, nRx,nRy, fRx,fRy, fLx,fLy)
+end
+
+-- Top-only: same trapezoid silhouette lifted to height h (no sides)
+function Paddle:drawTopOnly(h, color)
+    local xN = self.x
+    local xF = self.x + self.width
+    local yTop = self.y
+    local yBot = self.y + self.height
+
+    local nLx, nLy = Perspective.project(xN, yTop, h)
+    local nRx, nRy = Perspective.project(xN, yBot, h)
+    local fRx, fRy = Perspective.project(xF, yBot, h)
+    local fLx, fLy = Perspective.project(xF, yTop, h)
+
+    love.graphics.setColor(color or COLOR_FG)
     love.graphics.polygon("fill", nLx,nLy, nRx,nRy, fRx,fRy, fLx,fLy)
     love.graphics.setLineWidth(2)
     love.graphics.polygon("line", nLx,nLy, nRx,nRy, fRx,fRy, fLx,fLy)

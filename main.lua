@@ -23,27 +23,22 @@ local function drawTableOutline()
     )
 end
 
--- === HORIZONTAL dotted line EXACTLY IN THE MIDDLE OF THE VISIBLE TABLE ===
--- We are looking for such a depth x_mid, where scanY (projection line) is exactly
--- between the top and bottom edges of the trapezoid. We draw dashes from left to right.
+-- Horizontal dotted line exactly in the middle of the visible table
 local function drawCenterLineHorizontal()
     local spec = Perspective.tableSpec()
     local P = spec.trapezoid
     local T = spec.size
 
-    -- screen Y top/bottom edges table
     local bottomY = (P.bl.y + P.br.y) * 0.5
     local topY    = (P.tl.y + P.tr.y) * 0.5
     local scanY_target = 0.5 * (bottomY + topY)
 
-    -- function: return scanY for depth fraction t
     local function scanY_at_t(t)
         local x = T.d * t
         local _, y = Perspective.project(x, 0, 0)
         return y
     end
 
-    -- binary search t, so that scanY coincides with the middle
     local lo, hi = 0.0, 1.0
     for _ = 1, 24 do
         local mid = 0.5 * (lo + hi)
@@ -56,7 +51,6 @@ local function drawCenterLineHorizontal()
     local t_mid = 0.5 * (lo + hi)
     local x_mid = T.d * t_mid
 
-    -- draw a dotted line along the WIDTH (axis across / logical
     local dash = 28
     local gap  = 16
     love.graphics.setColor(COLOR_FG)
@@ -75,7 +69,6 @@ function love.load()
     love.graphics.setBackgroundColor(COLOR_BG)
     math.randomseed(os.time())
 
-    --Game objects (logic remains 2D)
     player   = Paddle:create(PADDLE_OFFSET_X,
                              (WINDOW_HEIGHT - PADDLE_HEIGHT)/2,
                              BAT_MIN_X, BAT_MAX_X)
@@ -90,20 +83,20 @@ end
 function love.update(dt)
     if gameState ~= "play" then return end
 
-    -- Player controls: W/S - depth (x), A/D - across (y)
+    -- Left: W/S across, A/D depth
     local vdir, hdir = 0, 0
     if love.keyboard.isDown('a') then vdir = -1 elseif love.keyboard.isDown('d') then vdir = 1 end
     if love.keyboard.isDown('s') then hdir = -1 elseif love.keyboard.isDown('w') then hdir = 1 end
     player:update(dt, vdir, hdir)
 
-    -- Opponent (AI)
+    -- Right paddle AI
     local ovdir, ohdir = aiStrategy(ball, opponent)
     opponent:update(dt, ovdir, ohdir)
 
-    -- Ball — 2D physics
+    -- Ball physics (2D)
     ball:update(dt)
 
-    -- Bounce off top/bottom (Y axis)
+    -- Bounce on top/bottom (across axis)
     if ball.y - ball.radius <= 0 then
         ball.y = ball.radius
         ball.dy = -ball.dy
@@ -112,10 +105,9 @@ function love.update(dt)
         ball.dy = -ball.dy
     end
 
-    -- Collisions with paddles (as in 2D, from the sides)
+    -- Collisions with bats (swept)
     if collision.sweptCollision(ball, player) then
         collision.bounceRelative(ball, player)
-        -- need to prevent sticking
         local cx = math.max(player.x, math.min(ball.x, player.x + player.width))
         local cy = math.max(player.y, math.min(ball.y, player.y + player.height))
         local nx, ny = ball.x - cx, ball.y - cy
@@ -146,16 +138,24 @@ end
 
 function love.draw()
     love.graphics.clear(COLOR_BG)
-    love.graphics.setColor(COLOR_FG)
 
+    -- 1) Table + center line (B/W)
     drawTableOutline()
-    drawCenterLineHorizontal()      -- << divides the field into top/bottom
+    drawCenterLineHorizontal()
 
+    -- 2) Base silhouettes on table plane (B/W)
     player:draw()
     opponent:draw()
     ball:draw()
 
-    -- Score/Start
+    -- 3) Raised tops without sides:
+    --    first puck top (lower plane), then bat tops (higher plane)
+    ball:drawTop(PUCK_HEIGHT, COLOR_PUCK_TOP)
+    player:drawTopOnly(BAT_TOP_HEIGHT, COLOR_BAT_TOP)
+    opponent:drawTopOnly(BAT_TOP_HEIGHT, COLOR_BAT_TOP)
+
+    -- HUD
+    love.graphics.setColor(COLOR_FG)
     love.graphics.print(tostring(playerScore), WINDOW_WIDTH / 2 - 60, SCORE_OFFSET_Y)
     love.graphics.print(tostring(opponentScore), WINDOW_WIDTH / 2 + 40, SCORE_OFFSET_Y)
 
