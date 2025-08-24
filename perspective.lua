@@ -1,10 +1,11 @@
 -- perspective.lua
 -- Map table-space (x = depth, y = across, h = height) -> screen (sx, sy)
--- Near edge is at the bottom of the screen; far edge at the top.
+-- We keep h = 0 (everything on the table plane).
 
 local Perspective = {}
 
--- Trapezoid describing the visible table on screen
+-- We’ll treat the existing WINDOW_* space as your table-space in logic.
+-- The trapezoid controls how that space is drawn on screen.
 local function trapezoid()
   -- Bottom edge (near) = closer to viewer; Top edge (far) = farther
   local BL = { x = 120, y = WINDOW_HEIGHT - 50 }
@@ -14,12 +15,12 @@ local function trapezoid()
   return BL, BR, TL, TR
 end
 
--- Dimensions of logical table space
+-- Logical table size (in your game’s coords). We map:
+-- x (depth) ∈ [0 .. WINDOW_WIDTH], y (across) ∈ [0 .. WINDOW_HEIGHT]
 local function tableSize()
   return { d = WINDOW_WIDTH, w = WINDOW_HEIGHT }
 end
 
--- Return public spec for other modules (table outline + size)
 function Perspective.tableSpec()
   local BL, BR, TL, TR = trapezoid()
   return {
@@ -28,24 +29,25 @@ function Perspective.tableSpec()
   }
 end
 
--- Project table-space (x,y,h) onto screen
+-- Project (x:depth, y:across, h) to screen
 function Perspective.project(x, y, h)
   local T = tableSize()
+  -- clamp to table range
+  if x < 0 then x = 0 elseif x > T.d then x = T.d end
+  if y < 0 then y = 0 elseif y > T.w then y = T.w end
+
   local BL, BR, TL, TR = trapezoid()
+  local t = x / T.d
 
-  local t = (x / T.d)
-  if t < 0 then t = 0 elseif t > 1 then t = 1 end
-
-  -- Interpolate the current scanline across the trapezoid at depth t
+  -- scanline at given depth
   local leftX  = BL.x + (TL.x - BL.x) * t
   local rightX = BR.x + (TR.x - BR.x) * t
   local scanY  = BL.y + (TL.y - BL.y) * t
   local width  = rightX - leftX
 
-  -- Across-axis mapping: y in [0..T.w] maps to [leftX..rightX]
   local sx = leftX + (y / T.w) * width
 
-  -- Height compresses with depth similarly to width
+  -- height scale (not used: h=0, but keep for completeness)
   local heightScale = width / T.w
   local sy = scanY - (h or 0) * heightScale
 

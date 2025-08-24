@@ -11,7 +11,7 @@ local playerScore, opponentScore
 local gameState = "start"
 local aiStrategy = AI.clever
 
--- ---------- Table outline helpers ----------
+-- ---------- helpers: table ------------------------------------
 
 local function drawTableOutline()
     local spec = Perspective.tableSpec()
@@ -23,7 +23,7 @@ local function drawTableOutline()
     )
 end
 
--- Horizontal dotted line halfway between near and far edges
+-- Horizontal dashed center line along table mid-depth
 local function drawCenterLineHorizontal()
     local spec = Perspective.tableSpec()
     local P = spec.trapezoid
@@ -83,7 +83,7 @@ end
 function love.update(dt)
     if gameState ~= "play" then return end
 
-    -- Left paddle controls: W/S across, A/D depth
+    -- Left paddle: WASD (A/D = depth, W/S = across)
     local vdir, hdir = 0, 0
     if love.keyboard.isDown('a') then vdir = -1 elseif love.keyboard.isDown('d') then vdir = 1 end
     if love.keyboard.isDown('s') then hdir = -1 elseif love.keyboard.isDown('w') then hdir = 1 end
@@ -93,10 +93,10 @@ function love.update(dt)
     local ovdir, ohdir = aiStrategy(ball, opponent)
     opponent:update(dt, ovdir, ohdir)
 
-    -- Ball physics (2D)
+    -- Ball physics
     ball:update(dt)
 
-    -- Bounce on top/bottom (across axis)
+    -- Bounce on top/bottom bounds (across axis)
     if ball.y - ball.radius <= 0 then
         ball.y = ball.radius
         ball.dy = -ball.dy
@@ -105,7 +105,7 @@ function love.update(dt)
         ball.dy = -ball.dy
     end
 
-    -- Collisions with bats
+    -- Collisions with paddles
     if collision.sweptCollision(ball, player) then
         collision.bounceRelative(ball, player)
         local cx = math.max(player.x, math.min(ball.x, player.x + player.width))
@@ -139,43 +139,76 @@ end
 function love.draw()
     love.graphics.clear(COLOR_BG)
 
-    -- 1) Table + center line (B/W)
+    -- (1) Table & center line (iteration 1, B/W)
     drawTableOutline()
     drawCenterLineHorizontal()
 
-    -- 2) Iteration 1: base silhouettes on table plane (B/W)
-    player:drawBase()
-    opponent:drawBase()
-    ball:drawBottom()
+    -- (2) Base silhouettes on table (iteration 1)
+    player:draw()
+    opponent:draw()
+    ball:draw()
 
-    -- 3) Iteration 3: vertical faces (quads) — collected into preTop / postTop
-    local prePlayer, postPlayer = player:collectVerticalFaces(ball, BAT_TOP_HEIGHT)
-    local preOpp,    postOpp    = opponent:collectVerticalFaces(ball, BAT_TOP_HEIGHT)
+    -- (2.5) Vertical faces + puck stack with correct interleaving (iteration 3)
+    local faceColors = {
+        left  = {0.95, 0.85, 0.35},
+        right = {0.35, 0.85, 0.95},
+        front = {0.85, 0.45, 0.95},
+        back  = {0.45, 0.95, 0.65},
+    }
 
-    local function drawFaces(faces)
-        for _, f in ipairs(faces) do
-            love.graphics.setColor(f.color or COLOR_FG)
-            love.graphics.polygon("fill", unpack(f.poly))  -- use global unpack (LuaJIT 5.1)
-            love.graphics.setLineWidth(1)                  -- thinner outline to avoid seams
-            love.graphics.polygon("line", unpack(f.poly))
-        end
+    -- screen center X for side-wall rule
+    local SCREEN_CX = WINDOW_WIDTH * 0.5
+
+    -- depth proxy: screen Y of object center at h=0 (larger Y => closer to viewer)
+    local function depthY_of(x, y) local _, yy = Perspective.project(x, y, 0); return yy end
+
+    local ballCY = depthY_of(ball.x, ball.y)
+
+    local playerCX = player.x + player.width  * 0.5
+    local playerCY = player.y + player.height * 0.5
+    local playerDY = depthY_of(playerCX, playerCY)
+
+    local oppCX = opponent.x + opponent.width  * 0.5
+    local oppCY = opponent.y + opponent.height * 0.5
+    local oppDY = depthY_of(oppCX, oppCY)
+
+    -- "Behind" means farther from viewer -> smaller depthY
+    local playerBehindBall   = (playerDY < ballCY)
+    local opponentBehindBall = (oppDY   < ballCY)
+
+    -- draw side walls only if paddle currently moves along depth (A/D or AI)
+    local showSidesPlayer = math.abs(player.hspeed or 0)   > 0.1
+    local showSidesOpp    = math.abs(opponent.hspeed or 0) > 0.1
+
+    local function puck_stack()
+        -- According to spec: bottom already drawn in ball:draw();
+        -- now draw side-rectangle, then top.
+        ball:drawSideRect(PUCK_HEIGHT, COLOR_PUCK_TOP)
+        ball:drawTop(PUCK_HEIGHT, COLOR_PUCK_TOP)
     end
 
-    -- Draw those that must appear behind the puck top:
-    drawFaces(prePlayer)
-    drawFaces(preOpp)
+    -- First: faces of bats that are BEHIND the puck
+    if playerBehindBall then
+        player:drawVerticalFaces(BAT_TOP_HEIGHT, faceColors, SCREEN_CX, true,  showSidesPlayer)
+    end
+    if opponentBehindBall then
+        opponent:drawVerticalFaces(BAT_TOP_HEIGHT, faceColors, SCREEN_CX, false, showSidesOpp)
+    end
 
-    -- Puck body rectangle (iteration 3) — right before the top of the puck
-    ball:drawBodyRect(PUCK_HEIGHT)
+    -- Then: the puck (once)
+    puck_stack()
 
-    -- 4) Iteration 2 tops: puck top, then bat tops (higher plane)
-    ball:drawTop(PUCK_HEIGHT, COLOR_PUCK_TOP)
+    -- Finally: faces of bats that are IN FRONT of the puck
+    if not playerBehindBall then
+        player:drawVerticalFaces(BAT_TOP_HEIGHT, faceColors, SCREEN_CX, true,  showSidesPlayer)
+    end
+    if not opponentBehindBall then
+        opponent:drawVerticalFaces(BAT_TOP_HEIGHT, faceColors, SCREEN_CX, false, showSidesOpp)
+    end
+
+    -- (3) Raised tops of bats (iteration 2 — only tops above the puck)
     player:drawTopOnly(BAT_TOP_HEIGHT, COLOR_BAT_TOP)
     opponent:drawTopOnly(BAT_TOP_HEIGHT, COLOR_BAT_TOP)
-
-    -- Draw faces that must appear in front of the puck top:
-    drawFaces(postPlayer)
-    drawFaces(postOpp)
 
     -- HUD
     love.graphics.setColor(COLOR_FG)
